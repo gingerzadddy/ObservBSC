@@ -1,44 +1,22 @@
+import React from 'react'
 import styled from 'styled-components'
-import { ButtonMenu, ButtonMenuItem, NotificationDot } from '@pancakeswap/uikit'
-import { useTranslation } from 'contexts/Localization'
-import { useRouter } from 'next/router'
-import { NextLinkFromReactRouter } from 'components/NextLink'
+import { useRouteMatch, Link } from 'react-router-dom'
+import { ButtonMenu, ButtonMenuItem } from '@pancakeswap-libs/uikit'
+import useI18n from 'hooks/useI18n'
 
-interface FarmTabButtonsProps {
-  hasStakeInFinishedFarms: boolean
-}
-
-const FarmTabButtons: React.FC<FarmTabButtonsProps> = ({ hasStakeInFinishedFarms }) => {
-  const router = useRouter()
-  const { t } = useTranslation()
-
-  let activeIndex
-  switch (router.pathname) {
-    case '/farms':
-      activeIndex = 0
-      break
-    case '/farms/history':
-      activeIndex = 1
-      break
-    case '/farms/archived':
-      activeIndex = 2
-      break
-    default:
-      activeIndex = 0
-      break
-  }
+const FarmTabButtons = () => {
+  const { url, isExact } = useRouteMatch()
+  const TranslateString = useI18n()
 
   return (
     <Wrapper>
-      <ButtonMenu activeIndex={activeIndex} scale="sm" variant="subtle">
-        <ButtonMenuItem as={NextLinkFromReactRouter} to="/farms">
-          {t('Live')}
+      <ButtonMenu activeIndex={isExact ? 0 : 1} scale="sm" variant="subtle">
+        <ButtonMenuItem as={Link} to={`${url}`}>
+          {TranslateString(1198, 'Live')}
         </ButtonMenuItem>
-        <NotificationDot show={hasStakeInFinishedFarms}>
-          <ButtonMenuItem as={NextLinkFromReactRouter} to="/farms/history" id="finished-farms-button">
-            {t('Finished')}
-          </ButtonMenuItem>
-        </NotificationDot>
+        <ButtonMenuItem as={Link} to={`${url}/history`}>
+          {TranslateString(388, 'Finished')}
+        </ButtonMenuItem>
       </ButtonMenu>
     </Wrapper>
   )

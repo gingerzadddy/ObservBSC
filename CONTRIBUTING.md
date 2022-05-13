@@ -1,20 +1,28 @@
-# Contributing to the Pancake ecosystem 🥞
+# Contributing to the Yieldbay ecosystem 🌴
 
 Thanks for taking the time to contribute !
-You can start by reading our [Contribution guidelines](https://docs.pancakeswap.finance/code/contributing) first.
 
 ## Setup
+
+Create a `.env.development.local` file at the root of the project. Add the following lines inside :
+
+```
+REACT_APP_CROWDIN_APIKEY = ""
+REACT_APP_CROWDIN_PROJECTID = ""
+```
+
+You'll need this in order to get the i18n system to work. Contact a dev if you need these values.
 
 Install the dependencies
 
 ```shell
 yarn
-yarn dev
+yarn start
 ```
 
 Don't forget to setup your IDE with `eslint` and `prettier`.
 
-## Project structure
+## Projet structure
 
 - **components** contains generic components used inside the application.
 - **views** contains building blocks for each page. The entry point of a view is used as the root component of each route.
@@ -23,50 +31,33 @@ Don't forget to setup your IDE with `eslint` and `prettier`.
 - **context** contains global contexts (separated from the redux store)
 - **hooks** contains generic hooks.
 - **utils** contains generic utilities functions.
-- **pages** contains page components for next.js
 
 ## Tests
 
 Run tests with `yarn test`.
 
-## Issue reports
+## Localisation
 
-A bug is a _demonstrable problem_ that is caused by the code in the repository.
-Good bug reports are extremely helpful - thank you!
+_In order for the Crowdin API queries to work - you will need `REACT_APP_CROWDIN_APIKEY` & `REACT_APP_CROWDIN_PROJECTID` env variables set in your root `.env.development.local` file_
 
-Guidelines for bug reports:
+### Adding translations
 
-1. **Use the GitHub issue search** &mdash; check if the issue has already been
-   reported.
-
-2. **Check if the issue has been fixed** &mdash; try to reproduce it using the
-   latest `master` or development branch in the repository.
-
-3. **Isolate the problem** &mdash; create a [reduced test
-   case](http://css-tricks.com/reduced-test-cases/) and a live example.
-
-4. **Add attachments** &mdash; add photos or videos
-
-A good bug report shouldn't leave others needing to chase you up for more
-information. Please try to be as detailed as possible in your report. What is
-your environment? What steps will reproduce the issue? What browser(s) and OS
-experience the problem? What would you expect to be the outcome? All these
-details will help people to fix any potential bugs.
-
-Template:
+A hook expose the function you need to translate content.
 
 ```
-**Environment:**
-Device and OS:
-Browser:
-Reproducibility rate:
-
-**Steps to reproduce:**
-1.
-2.
-3.
-
-**Expected result:**
+import useI18n from 'hooks/useI18n'
+...
+const TranslateString = useI18n()
+...
+TranslateString(id, 'fallback')
 ```
 
-A good bug report shouldn't leave others needing to chase you up for more.
+- **id** is the crowdin id of the string you want to translate.
+- **fallback** is a string fallback used if the id cannot be found.
+
+### Variables
+
+The translation component can handle variables being passed in from Crowdin, with no code changes.
+
+It will only work if there is only **one** variable passed in, and if that variable within Crowdin is wrapped in **%** signs, i.e.:
+

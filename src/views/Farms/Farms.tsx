@@ -1,32 +1,30 @@
-import { useEffect, useCallback, useState, useMemo, useRef, createContext } from 'react'
+import React, { useEffect, useCallback, useState } from 'react'
+import { Route, useRouteMatch, useLocation } from 'react-router-dom'
+import { useDispatch } from 'react-redux'
 import BigNumber from 'bignumber.js'
 import { useWeb3React } from '@web3-react/core'
-import { Image, Heading, RowType, Toggle, Text, Button, ArrowForwardIcon, Flex, Link } from '@pancakeswap/uikit'
-import { ChainId } from '@pancakeswap/sdk'
-import { NextLinkFromReactRouter } from 'components/NextLink'
+import { Image, Heading, RowType, Toggle, Text } from '@pancakeswap-libs/uikit'
 import styled from 'styled-components'
-import FlexLayout from 'components/Layout/Flex'
-import Page from 'components/Layout/Page'
-import { useFarms, usePollFarmsWithUserData, usePriceCakeBusd } from 'state/farms/hooks'
-import useIntersectionObserver from 'hooks/useIntersectionObserver'
-import { DeserializedFarm } from 'state/types'
-import { useTranslation } from 'contexts/Localization'
+import { BLOCKS_PER_YEAR, CAKE_PER_BLOCK, CAKE_POOL_PID } from 'config'
+import FlexLayout from 'components/layout/Flex'
+import Page from 'components/layout/Page'
+import { useFarms, usePriceBnbBusd, usePriceCakeBusd, usePriceEthBusd } from 'state/hooks'
+import useRefresh from 'hooks/useRefresh'
+import { fetchFarmUserDataAsync } from 'state/actions'
+import { Farm } from 'state/types'
+import tokens from 'config/constants/tokens'
+import useI18n from 'hooks/useI18n'
 import { getBalanceNumber } from 'utils/formatBalance'
-import { getFarmApr } from 'utils/apr'
-import orderBy from 'lodash/orderBy'
-import { latinise } from 'utils/latinise'
-import { useUserFarmStakedOnly, useUserFarmsViewMode } from 'state/user/hooks'
-import { ViewMode } from 'state/user/actions'
-import { useRouter } from 'next/router'
-import PageHeader from 'components/PageHeader'
-import SearchInput from 'components/SearchInput'
-import Select, { OptionProps } from 'components/Select/Select'
-import Loading from 'components/Loading'
-import ToggleView from 'components/ToggleView/ToggleView'
+import { orderBy } from 'lodash'
+
+import FarmCard, { FarmWithStakedValue } from './components/FarmCard/FarmCard'
 import Table from './components/FarmTable/FarmTable'
 import FarmTabButtons from './components/FarmTabButtons'
+import SearchInput from './components/SearchInput'
 import { RowProps } from './components/FarmTable/Row'
-import { DesktopColumnSchema, FarmWithStakedValue } from './components/types'
+import ToggleView from './components/ToggleView/ToggleView'
+import { DesktopColumnSchema, ViewMode } from './components/types'
+import Select, { OptionProps } from './components/Select/Select'
 
 const ControlContainer = styled.div`
   display: flex;
@@ -36,13 +34,11 @@ const ControlContainer = styled.div`
 
   justify-content: space-between;
   flex-direction: column;
-  margin-bottom: 32px;
 
   ${({ theme }) => theme.mediaQueries.sm} {
     flex-direction: row;
     flex-wrap: wrap;
     padding: 16px 32px;
-    margin-bottom: 0;
   }
 `
 
@@ -101,205 +97,175 @@ const StyledImage = styled(Image)`
   margin-top: 58px;
 `
 
-const FinishedTextContainer = styled(Flex)`
-  padding-bottom: 32px;
-  flex-direction: column;
-  ${({ theme }) => theme.mediaQueries.md} {
-    flex-direction: row;
+const Header = styled.div`
+  padding: 32px 0px;
+  background: ${({ theme }) => theme.colors.gradients.bubblegum};
+
+  padding-left: 16px;
+  padding-right: 16px;
+
+  ${({ theme }) => theme.mediaQueries.sm} {
+    padding-left: 24px;
+    padding-right: 24px;
   }
 `
 
-const FinishedTextLink = styled(Link)`
-  font-weight: 400;
-  white-space: nowrap;
-  text-decoration: underline;
-`
-
-const NUMBER_OF_FARMS_VISIBLE = 12
-
-export const getDisplayApr = (cakeRewardsApr?: number, lpRewardsApr?: number) => {
-  if (cakeRewardsApr && lpRewardsApr) {
-    return (cakeRewardsApr + lpRewardsApr).toLocaleString('en-US', { maximumFractionDigits: 2 })
-  }
-  if (cakeRewardsApr) {
-    return cakeRewardsApr.toLocaleString('en-US', { maximumFractionDigits: 2 })
-  }
-  return null
-}
-
-const Farms: React.FC = ({ children }) => {
-  const { pathname } = useRouter()
-  const { t } = useTranslation()
-  const { data: farmsLP, userDataLoaded, poolLength, regularCakePerBlock } = useFarms()
+const Farms: React.FC = () => {
+  const { path } = useRouteMatch()
+  const { pathname } = useLocation()
+  const TranslateString = useI18n()
+  const farmsLP = useFarms()
   const cakePrice = usePriceCakeBusd()
+  const bnbPrice = usePriceBnbBusd()
   const [query, setQuery] = useState('')
-  const [viewMode, setViewMode] = useUserFarmsViewMode()
+  const [viewMode, setViewMode] = useState(ViewMode.TABLE)
+  const ethPriceUsd = usePriceEthBusd()
   const { account } = useWeb3React()
   const [sortOption, setSortOption] = useState('hot')
-  const { observerRef, isIntersecting } = useIntersectionObserver()
-  const chosenFarmsLength = useRef(0)
 
-  const isArchived = pathname.includes('archived')
-  const isInactive = pathname.includes('history')
-  const isActive = !isInactive && !isArchived
+  const dispatch = useDispatch()
+  const { fastRefresh } = useRefresh()
+  useEffect(() => {
+    if (account) {
+      dispatch(fetchFarmUserDataAsync(account))
+    }
+  }, [account, dispatch, fastRefresh])
 
-  usePollFarmsWithUserData()
+  const [stackedOnly, setStackedOnly] = useState(false)
 
-  // Users with no wallet connected should see 0 as Earned amount
-  // Connected users should see loading indicator until first userData has loaded
-  const userDataReady = !account || (!!account && userDataLoaded)
-
-  const [stakedOnly, setStakedOnly] = useUserFarmStakedOnly(isActive)
-
-  const activeFarms = farmsLP.filter(
-    (farm) => farm.pid !== 0 && farm.multiplier !== '0X' && (!poolLength || poolLength > farm.pid),
-  )
+  const activeFarms = farmsLP.filter((farm) => farm.pid !== 0 && farm.multiplier !== '0X')
   const inactiveFarms = farmsLP.filter((farm) => farm.pid !== 0 && farm.multiplier === '0X')
-  const archivedFarms = farmsLP
 
-  const stakedOnlyFarms = activeFarms.filter(
+  const stackedOnlyFarms = activeFarms.filter(
     (farm) => farm.userData && new BigNumber(farm.userData.stakedBalance).isGreaterThan(0),
   )
 
-  const stakedInactiveFarms = inactiveFarms.filter(
-    (farm) => farm.userData && new BigNumber(farm.userData.stakedBalance).isGreaterThan(0),
-  )
+  const sortFarms = (farms: FarmWithStakedValue[]): FarmWithStakedValue[] => {
+    switch (sortOption) {
+      case 'apr':
+        return orderBy(farms, 'apy', 'desc')
+      case 'multiplier':
+        return orderBy(
+          farms,
+          (farm: FarmWithStakedValue) => (farm.multiplier ? Number(farm.multiplier.slice(0, -1)) : 0),
+          'desc',
+        )
+      case 'earned':
+        return orderBy(farms, (farm: FarmWithStakedValue) => (farm.userData ? farm.userData.earnings : 0), 'desc')
+      case 'liquidity':
+        return orderBy(farms, (farm: FarmWithStakedValue) => Number(farm.liquidity), 'desc')
+      default:
+        return farms
+    }
+  }
 
-  const stakedArchivedFarms = archivedFarms.filter(
-    (farm) => farm.userData && new BigNumber(farm.userData.stakedBalance).isGreaterThan(0),
-  )
-
+  // /!\ This function will be removed soon
+  // This function compute the APY for each farm and will be replaced when we have a reliable API
+  // to retrieve assets prices against USD
   const farmsList = useCallback(
-    (farmsToDisplay: DeserializedFarm[]): FarmWithStakedValue[] => {
-      let farmsToDisplayWithAPR: FarmWithStakedValue[] = farmsToDisplay.map((farm) => {
-        if (!farm.lpTotalInQuoteToken || !farm.quoteTokenPriceBusd) {
+    (farmsToDisplay: Farm[]): FarmWithStakedValue[] => {
+      const cakePriceVsBNB = new BigNumber(farmsLP.find((farm) => farm.pid === CAKE_POOL_PID)?.tokenPriceVsQuote || 0)
+      let farmsToDisplayWithAPY: FarmWithStakedValue[] = farmsToDisplay.map((farm) => {
+        if (!farm.tokenAmount || !farm.lpTotalInQuoteToken) {
           return farm
         }
-        const totalLiquidity = new BigNumber(farm.lpTotalInQuoteToken).times(farm.quoteTokenPriceBusd)
-        const { cakeRewardsApr, lpRewardsApr } = isActive
-          ? getFarmApr(
-              new BigNumber(farm.poolWeight),
-              cakePrice,
-              totalLiquidity,
-              farm.lpAddresses[ChainId.MAINNET],
-              regularCakePerBlock,
-            )
-          : { cakeRewardsApr: 0, lpRewardsApr: 0 }
+        const cakeRewardPerBlock = CAKE_PER_BLOCK.times(farm.poolWeight)
+        const cakeRewardPerYear = cakeRewardPerBlock.times(BLOCKS_PER_YEAR)
 
-        return { ...farm, apr: cakeRewardsApr, lpRewardsApr, liquidity: totalLiquidity }
+        // cakePriceInQuote * cakeRewardPerYear / lpTotalInQuoteToken
+        let apy = cakePriceVsBNB.times(cakeRewardPerYear).div(farm.lpTotalInQuoteToken)
+
+        if (farm.quoteToken.symbol === tokens.busd.symbol || farm.quoteToken.symbol === tokens.ust.symbol) {
+          apy = cakePriceVsBNB.times(cakeRewardPerYear).div(farm.lpTotalInQuoteToken).times(bnbPrice)
+        } else if (farm.quoteToken.symbol === tokens.eth.symbol) {
+          apy = cakePrice.div(ethPriceUsd).times(cakeRewardPerYear).div(farm.lpTotalInQuoteToken)
+        } else if (farm.quoteToken.symbol === tokens.cake.symbol) {
+          apy = cakeRewardPerYear.div(farm.lpTotalInQuoteToken)
+        } else if (farm.dual) {
+          const cakeApy =
+            farm && cakePriceVsBNB.times(cakeRewardPerBlock).times(BLOCKS_PER_YEAR).div(farm.lpTotalInQuoteToken)
+          const dualApy =
+            farm.tokenPriceVsQuote &&
+            new BigNumber(farm.tokenPriceVsQuote)
+              .times(farm.dual.rewardPerBlock)
+              .times(BLOCKS_PER_YEAR)
+              .div(farm.lpTotalInQuoteToken)
+
+          apy = cakeApy && dualApy && cakeApy.plus(dualApy)
+        }
+
+        let liquidity = farm.lpTotalInQuoteToken
+
+        if (!farm.lpTotalInQuoteToken) {
+          liquidity = null
+        }
+        if (farm.quoteToken.symbol === tokens.wbnb.symbol) {
+          liquidity = bnbPrice.times(farm.lpTotalInQuoteToken)
+        }
+        if (farm.quoteToken.symbol === tokens.cake.symbol) {
+          liquidity = cakePrice.times(farm.lpTotalInQuoteToken)
+        }
+
+        if (farm.quoteToken.symbol === tokens.eth.symbol) {
+          liquidity = ethPriceUsd.times(farm.lpTotalInQuoteToken)
+        }
+
+        return { ...farm, apy, liquidity }
       })
 
       if (query) {
-        const lowercaseQuery = latinise(query.toLowerCase())
-        farmsToDisplayWithAPR = farmsToDisplayWithAPR.filter((farm: FarmWithStakedValue) => {
-          return latinise(farm.lpSymbol.toLowerCase()).includes(lowercaseQuery)
+        const lowercaseQuery = query.toLowerCase()
+        farmsToDisplayWithAPY = farmsToDisplayWithAPY.filter((farm: FarmWithStakedValue) => {
+          if (farm.lpSymbol.toLowerCase().includes(lowercaseQuery)) {
+            return true
+          }
+
+          return false
         })
       }
-      return farmsToDisplayWithAPR
+      return farmsToDisplayWithAPY
     },
-    [cakePrice, query, isActive, regularCakePerBlock],
+    [bnbPrice, farmsLP, query, cakePrice, ethPriceUsd],
   )
 
   const handleChangeQuery = (event: React.ChangeEvent<HTMLInputElement>) => {
     setQuery(event.target.value)
   }
 
-  const [numberOfFarmsVisible, setNumberOfFarmsVisible] = useState(NUMBER_OF_FARMS_VISIBLE)
+  const isActive = !pathname.includes('history')
+  let farmsStaked = []
+  if (isActive) {
+    farmsStaked = stackedOnly ? farmsList(stackedOnlyFarms) : farmsList(activeFarms)
+  } else {
+    farmsStaked = farmsList(inactiveFarms)
+  }
 
-  const chosenFarmsMemoized = useMemo(() => {
-    let chosenFarms = []
+  farmsStaked = sortFarms(farmsStaked)
 
-    const sortFarms = (farms: FarmWithStakedValue[]): FarmWithStakedValue[] => {
-      switch (sortOption) {
-        case 'apr':
-          return orderBy(farms, (farm: FarmWithStakedValue) => farm.apr + farm.lpRewardsApr, 'desc')
-        case 'multiplier':
-          return orderBy(
-            farms,
-            (farm: FarmWithStakedValue) => (farm.multiplier ? Number(farm.multiplier.slice(0, -1)) : 0),
-            'desc',
-          )
-        case 'earned':
-          return orderBy(
-            farms,
-            (farm: FarmWithStakedValue) => (farm.userData ? Number(farm.userData.earnings) : 0),
-            'desc',
-          )
-        case 'liquidity':
-          return orderBy(farms, (farm: FarmWithStakedValue) => Number(farm.liquidity), 'desc')
-        case 'latest':
-          return orderBy(farms, (farm: FarmWithStakedValue) => Number(farm.pid), 'desc')
-        default:
-          return farms
-      }
-    }
-
-    if (isActive) {
-      chosenFarms = stakedOnly ? farmsList(stakedOnlyFarms) : farmsList(activeFarms)
-    }
-    if (isInactive) {
-      chosenFarms = stakedOnly ? farmsList(stakedInactiveFarms) : farmsList(inactiveFarms)
-    }
-    if (isArchived) {
-      chosenFarms = stakedOnly ? farmsList(stakedArchivedFarms) : farmsList(archivedFarms)
-    }
-
-    return sortFarms(chosenFarms).slice(0, numberOfFarmsVisible)
-  }, [
-    sortOption,
-    activeFarms,
-    farmsList,
-    inactiveFarms,
-    archivedFarms,
-    isActive,
-    isInactive,
-    isArchived,
-    stakedArchivedFarms,
-    stakedInactiveFarms,
-    stakedOnly,
-    stakedOnlyFarms,
-    numberOfFarmsVisible,
-  ])
-
-  chosenFarmsLength.current = chosenFarmsMemoized.length
-
-  useEffect(() => {
-    if (isIntersecting) {
-      setNumberOfFarmsVisible((farmsCurrentlyVisible) => {
-        if (farmsCurrentlyVisible <= chosenFarmsLength.current) {
-          return farmsCurrentlyVisible + NUMBER_OF_FARMS_VISIBLE
-        }
-        return farmsCurrentlyVisible
-      })
-    }
-  }, [isIntersecting])
-
-  const rowData = chosenFarmsMemoized.map((farm) => {
-    const { token, quoteToken } = farm
-    const tokenAddress = token.address
-    const quoteTokenAddress = quoteToken.address
+  const rowData = farmsStaked.map((farm) => {
+    const { quoteTokenAdresses, quoteTokenSymbol, tokenAddresses } = farm
     const lpLabel = farm.lpSymbol && farm.lpSymbol.split(' ')[0].toUpperCase().replace('PANCAKE', '')
 
     const row: RowProps = {
       apr: {
-        value: getDisplayApr(farm.apr, farm.lpRewardsApr),
-        pid: farm.pid,
+        value:
+          farm.apy &&
+          farm.apy.times(new BigNumber(100)).toNumber().toLocaleString('en-US', { maximumFractionDigits: 2 }),
         multiplier: farm.multiplier,
         lpLabel,
-        lpSymbol: farm.lpSymbol,
-        tokenAddress,
-        quoteTokenAddress,
+        quoteTokenAdresses,
+        quoteTokenSymbol,
+        tokenAddresses,
         cakePrice,
-        originalValue: farm.apr,
+        originalValue: farm.apy,
       },
       farm: {
+        image: farm.lpSymbol.split(' ')[0].toLocaleLowerCase(),
         label: lpLabel,
         pid: farm.pid,
-        token: farm.token,
-        quoteToken: farm.quoteToken,
       },
       earned: {
-        earnings: getBalanceNumber(new BigNumber(farm.userData.earnings)),
+        earnings: farm.userData ? getBalanceNumber(new BigNumber(farm.userData.earnings)) : null,
         pid: farm.pid,
       },
       liquidity: {
@@ -308,7 +274,6 @@ const Farms: React.FC = ({ children }) => {
       multiplier: {
         multiplier: farm.multiplier,
       },
-      type: farm.isCommunity ? 'community' : 'core',
       details: farm,
     }
 
@@ -342,10 +307,41 @@ const Farms: React.FC = ({ children }) => {
         sortable: column.sortable,
       }))
 
-      return <Table data={rowData} columns={columns} userDataReady={userDataReady} />
+      return <Table data={rowData} columns={columns} />
     }
 
-    return <FlexLayout>{children}</FlexLayout>
+    return (
+      <div>
+        <FlexLayout>
+          <Route exact path={`${path}`}>
+            {farmsStaked.map((farm) => (
+              <FarmCard
+                key={farm.pid}
+                farm={farm}
+                bnbPrice={bnbPrice}
+                cakePrice={cakePrice}
+                ethPrice={ethPriceUsd}
+                account={account}
+                removed={false}
+              />
+            ))}
+          </Route>
+          <Route exact path={`${path}/history`}>
+            {farmsStaked.map((farm) => (
+              <FarmCard
+                key={farm.pid}
+                farm={farm}
+                bnbPrice={bnbPrice}
+                cakePrice={cakePrice}
+                ethPrice={ethPriceUsd}
+                account={account}
+                removed
+              />
+            ))}
+          </Route>
+        </FlexLayout>
+      </div>
+    )
   }
 
   const handleSortOptionChange = (option: OptionProps): void => {
@@ -353,113 +349,65 @@ const Farms: React.FC = ({ children }) => {
   }
 
   return (
-    <FarmsContext.Provider value={{ chosenFarmsMemoized }}>
-      <PageHeader>
-        <Heading as="h1" scale="xxl" color="secondary" mb="24px">
-          {t('Farms')}
+    <>
+      <Header>
+        <Heading as="h1" size="xxl" color="secondary" mb="24px">
+          {TranslateString(999, 'Farms')}
         </Heading>
-        <Heading scale="lg" color="text">
-          {t('Stake LP tokens to earn.')}
+        <Heading size="lg" color="text">
+          {TranslateString(999, 'Stake Liquidity Pool (LP) tokens to earn.')}
         </Heading>
-        <NextLinkFromReactRouter to="/farms/auction" id="lottery-pot-banner">
-          <Button p="0" variant="text">
-            <Text color="primary" bold fontSize="16px" mr="4px">
-              {t('Community Auctions')}
-            </Text>
-            <ArrowForwardIcon color="primary" />
-          </Button>
-        </NextLinkFromReactRouter>
-      </PageHeader>
+      </Header>
       <Page>
         <ControlContainer>
           <ViewControls>
-            <ToggleView idPrefix="clickFarm" viewMode={viewMode} onToggle={(mode: ViewMode) => setViewMode(mode)} />
+            <ToggleView viewMode={viewMode} onToggle={(mode: ViewMode) => setViewMode(mode)} />
             <ToggleWrapper>
-              <Toggle
-                id="staked-only-farms"
-                checked={stakedOnly}
-                onChange={() => setStakedOnly(!stakedOnly)}
-                scale="sm"
-              />
-              <Text> {t('Staked only')}</Text>
+              <Toggle checked={stackedOnly} onChange={() => setStackedOnly(!stackedOnly)} scale="sm" />
+              <Text> {TranslateString(1116, 'Staked only')}</Text>
             </ToggleWrapper>
-            <FarmTabButtons hasStakeInFinishedFarms={stakedInactiveFarms.length > 0} />
+            <FarmTabButtons />
           </ViewControls>
           <FilterContainer>
             <LabelWrapper>
-              <Text textTransform="uppercase">{t('Sort by')}</Text>
+              <Text>SORT BY</Text>
               <Select
                 options={[
                   {
-                    label: t('Hot'),
+                    label: 'Hot',
                     value: 'hot',
                   },
                   {
-                    label: t('APR'),
+                    label: 'APR',
                     value: 'apr',
                   },
                   {
-                    label: t('Multiplier'),
+                    label: 'Multiplier',
                     value: 'multiplier',
                   },
                   {
-                    label: t('Earned'),
+                    label: 'Earned',
                     value: 'earned',
                   },
                   {
-                    label: t('Liquidity'),
+                    label: 'Liquidity',
                     value: 'liquidity',
                   },
-                  {
-                    label: t('Latest'),
-                    value: 'latest',
-                  },
                 ]}
-                onOptionChange={handleSortOptionChange}
+                onChange={handleSortOptionChange}
               />
             </LabelWrapper>
             <LabelWrapper style={{ marginLeft: 16 }}>
-              <Text textTransform="uppercase">{t('Search')}</Text>
-              <SearchInput onChange={handleChangeQuery} placeholder="Search Farms" />
+              <Text>SEARCH</Text>
+              <SearchInput onChange={handleChangeQuery} value={query} />
             </LabelWrapper>
           </FilterContainer>
         </ControlContainer>
-        {isInactive && (
-          <FinishedTextContainer>
-            <Text fontSize={['16px', null, '20px']} color="failure" pr="4px">
-              {t("Don't see the farm you are staking?")}
-            </Text>
-            <Flex>
-              <FinishedTextLink href="/migration" fontSize={['16px', null, '20px']} color="failure">
-                {t('Go to migration page')}
-              </FinishedTextLink>
-              <Text fontSize={['16px', null, '20px']} color="failure" padding="0px 4px">
-                or
-              </Text>
-              <FinishedTextLink
-                external
-                color="failure"
-                fontSize={['16px', null, '20px']}
-                href="https://v1-farms.pancakeswap.finance/farms/history"
-              >
-                {t('check out v1 farms')}.
-              </FinishedTextLink>
-            </Flex>
-          </FinishedTextContainer>
-        )}
         {renderContent()}
-        {account && !userDataLoaded && stakedOnly && (
-          <Flex justifyContent="center">
-            <Loading />
-          </Flex>
-        )}
-        <div ref={observerRef} />
-        <StyledImage src="/images/decorations/3dpan.png" alt="Pancake illustration" width={120} height={103} />
+        <StyledImage src="/images/3dpan.png" alt="Pancake illustration" width={120} height={103} />
       </Page>
-    </FarmsContext.Provider>
+    </>
   )
 }
-
-export const FarmsContext = createContext({ chosenFarmsMemoized: [] })
 
 export default Farms

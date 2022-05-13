@@ -2,7 +2,6 @@ import getTimePeriods from './getTimePeriods'
 
 /**
  * @param {Object} periods Return value from getTimePeriods
- * @param excludePeriods Key list for the object values of that exclude the periods
  * @return {string} '14h 3m 4s'
  */
 const formatTimePeriod = (periods: ReturnType<typeof getTimePeriods>, excludePeriods = []) => {
@@ -10,7 +9,7 @@ const formatTimePeriod = (periods: ReturnType<typeof getTimePeriods>, excludePer
 
   Object.keys(periods).forEach((period) => {
     if (periods[period] > 0 && !excludePeriods.includes(period)) {
-      textArr.push(`${periods[period]}${period.substring(0, 1)}`)
+      textArr.push(`${periods[period]}${period.substr(0, 1)}`)
     }
   })
 

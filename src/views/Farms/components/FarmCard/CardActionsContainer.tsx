@@ -1,62 +1,69 @@
-import { Button, Flex, Text } from '@pancakeswap/uikit'
-import ConnectWalletButton from 'components/ConnectWalletButton'
-import { ToastDescriptionWithTx } from 'components/Toast'
-import { useTranslation } from 'contexts/Localization'
-import { useERC20 } from 'hooks/useContract'
-import useToast from 'hooks/useToast'
-import useCatchTxError from 'hooks/useCatchTxError'
-import { useCallback } from 'react'
-import { useAppDispatch } from 'state'
-import { fetchFarmUserDataAsync } from 'state/farms'
+import React, { useState, useCallback } from 'react'
+import BigNumber from 'bignumber.js'
 import styled from 'styled-components'
+import { provider as ProviderType } from 'web3-core'
 import { getAddress } from 'utils/addressHelpers'
-import { FarmWithStakedValue } from '../types'
-import useApproveFarm from '../../hooks/useApproveFarm'
-import HarvestAction from './HarvestAction'
+import { getBep20Contract } from 'utils/contractHelpers'
+import { Button, Flex, Text } from '@pancakeswap-libs/uikit'
+import { Farm } from 'state/types'
+import { useFarmFromSymbol, useFarmUser } from 'state/hooks'
+import useI18n from 'hooks/useI18n'
+import useWeb3 from 'hooks/useWeb3'
+import { useApprove } from 'hooks/useApprove'
+import UnlockButton from 'components/UnlockButton'
 import StakeAction from './StakeAction'
+import HarvestAction from './HarvestAction'
 
 const Action = styled.div`
   padding-top: 16px;
 `
+export interface FarmWithStakedValue extends Farm {
+  apy?: BigNumber
+}
 
 interface FarmCardActionsProps {
   farm: FarmWithStakedValue
+  provider?: ProviderType
   account?: string
   addLiquidityUrl?: string
-  lpLabel?: string
-  displayApr?: string
 }
 
-const CardActions: React.FC<FarmCardActionsProps> = ({ farm, account, addLiquidityUrl, lpLabel, displayApr }) => {
-  const { t } = useTranslation()
-  const { toastSuccess } = useToast()
-  const { fetchWithCatchTxError, loading: pendingTx } = useCatchTxError()
-  const { pid, lpAddresses } = farm
-  const { allowance, earnings } = farm.userData || {}
+const CardActions: React.FC<FarmCardActionsProps> = ({ farm, account, addLiquidityUrl }) => {
+  const TranslateString = useI18n()
+  const [requestedApproval, setRequestedApproval] = useState(false)
+  const { pid, lpAddresses } = useFarmFromSymbol(farm.lpSymbol)
+  const { allowance, tokenBalance, stakedBalance, earnings } = useFarmUser(pid)
   const lpAddress = getAddress(lpAddresses)
+  const lpName = farm.lpSymbol.toUpperCase()
   const isApproved = account && allowance && allowance.isGreaterThan(0)
-  const dispatch = useAppDispatch()
+  const web3 = useWeb3()
 
-  const lpContract = useERC20(lpAddress)
+  const lpContract = getBep20Contract(lpAddress, web3)
 
-  const { onApprove } = useApproveFarm(lpContract)
+  const { onApprove } = useApprove(lpContract)
 
   const handleApprove = useCallback(async () => {
-    const receipt = await fetchWithCatchTxError(() => {
-      return onApprove()
-    })
-    if (receipt?.status) {
-      toastSuccess(t('Contract Enabled'), <ToastDescriptionWithTx txHash={receipt.transactionHash} />)
-      dispatch(fetchFarmUserDataAsync({ account, pids: [pid] }))
+    try {
+      setRequestedApproval(true)
+      await onApprove()
+      setRequestedApproval(false)
+    } catch (e) {
+      console.error(e)
     }
-  }, [onApprove, dispatch, account, pid, t, toastSuccess, fetchWithCatchTxError])
+  }, [onApprove])
 
   const renderApprovalOrStakeButton = () => {
     return isApproved ? (
-      <StakeAction {...farm} lpLabel={lpLabel} addLiquidityUrl={addLiquidityUrl} displayApr={displayApr} />
+      <StakeAction
+        stakedBalance={stakedBalance}
+        tokenBalance={tokenBalance}
+        tokenName={lpName}
+        pid={pid}
+        addLiquidityUrl={addLiquidityUrl}
+      />
     ) : (
-      <Button mt="8px" width="100%" disabled={pendingTx} onClick={handleApprove}>
-        {t('Enable Contract')}
+      <Button mt="8px" width="100%" disabled={requestedApproval} onClick={handleApprove}>
+        {TranslateString(758, 'Approve Contract')}
       </Button>
     )
   }
@@ -64,23 +71,24 @@ const CardActions: React.FC<FarmCardActionsProps> = ({ farm, account, addLiquidi
   return (
     <Action>
       <Flex>
-        <Text bold textTransform="uppercase" color="secondary" fontSize="12px" pr="4px">
+        <Text bold textTransform="uppercase" color="secondary" fontSize="12px" pr="3px">
+          {/* TODO: Is there a way to get a dynamic value here from useFarmFromSymbol? */}
           CAKE
         </Text>
         <Text bold textTransform="uppercase" color="textSubtle" fontSize="12px">
-          {t('Earned')}
+          {TranslateString(1072, 'Earned')}
         </Text>
       </Flex>
       <HarvestAction earnings={earnings} pid={pid} />
       <Flex>
-        <Text bold textTransform="uppercase" color="secondary" fontSize="12px" pr="4px">
-          {farm.lpSymbol}
+        <Text bold textTransform="uppercase" color="secondary" fontSize="12px" pr="3px">
+          {lpName}
         </Text>
         <Text bold textTransform="uppercase" color="textSubtle" fontSize="12px">
-          {t('Staked')}
+          {TranslateString(1074, 'Staked')}
         </Text>
       </Flex>
-      {!account ? <ConnectWalletButton mt="8px" width="100%" /> : renderApprovalOrStakeButton()}
+      {!account ? <UnlockButton mt="8px" width="100%" /> : renderApprovalOrStakeButton()}
     </Action>
   )
 }

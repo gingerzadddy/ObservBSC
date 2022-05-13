@@ -1,20 +1,21 @@
+import React from 'react'
 import styled from 'styled-components'
 import ApyButton from 'views/Farms/components/FarmCard/ApyButton'
+import { Address } from 'config/constants/types'
 import BigNumber from 'bignumber.js'
 import { BASE_ADD_LIQUIDITY_URL } from 'config'
 import getLiquidityUrlPathParts from 'utils/getLiquidityUrlPathParts'
-import { Skeleton } from '@pancakeswap/uikit'
+import useI18n from 'hooks/useI18n'
 
 export interface AprProps {
   value: string
   multiplier: string
-  pid: number
   lpLabel: string
-  lpSymbol: string
-  tokenAddress?: string
-  quoteTokenAddress?: string
+  quoteTokenAdresses: Address
+  quoteTokenSymbol: string
+  tokenAddresses: Address
   cakePrice: BigNumber
-  originalValue: number
+  originalValue: BigNumber
   hideButton?: boolean
 }
 
@@ -42,42 +43,28 @@ const AprWrapper = styled.div`
 
 const Apr: React.FC<AprProps> = ({
   value,
-  pid,
   lpLabel,
-  lpSymbol,
-  multiplier,
-  tokenAddress,
-  quoteTokenAddress,
+  quoteTokenAdresses,
+  tokenAddresses,
   cakePrice,
   originalValue,
   hideButton = false,
 }) => {
-  const liquidityUrlPathParts = getLiquidityUrlPathParts({ quoteTokenAddress, tokenAddress })
+  const TranslateString = useI18n()
+  const liquidityUrlPathParts = getLiquidityUrlPathParts({ quoteTokenAdresses, tokenAddresses })
   const addLiquidityUrl = `${BASE_ADD_LIQUIDITY_URL}/${liquidityUrlPathParts}`
-
-  return originalValue !== 0 ? (
+  return (
     <Container>
       {originalValue ? (
-        <ApyButton
-          variant={hideButton ? 'text' : 'text-and-button'}
-          pid={pid}
-          lpSymbol={lpSymbol}
-          lpLabel={lpLabel}
-          multiplier={multiplier}
-          cakePrice={cakePrice}
-          apr={originalValue}
-          displayApr={value}
-          addLiquidityUrl={addLiquidityUrl}
-        />
+        <>
+          <AprWrapper>{value}%</AprWrapper>
+          {!hideButton && (
+            <ApyButton lpLabel={lpLabel} cakePrice={cakePrice} apy={originalValue} addLiquidityUrl={addLiquidityUrl} />
+          )}
+        </>
       ) : (
-        <AprWrapper>
-          <Skeleton width={60} />
-        </AprWrapper>
+        <AprWrapper>{TranslateString(656, 'Loading...')}</AprWrapper>
       )}
-    </Container>
-  ) : (
-    <Container>
-      <AprWrapper>{originalValue}%</AprWrapper>
     </Container>
   )
 }

@@ -1,28 +1,26 @@
-import { useRef } from 'react'
+import React, { useRef } from 'react'
 import styled from 'styled-components'
-import { useTable, Button, ChevronUpIcon, ColumnType } from '@pancakeswap/uikit'
-import { useTranslation } from 'contexts/Localization'
+import { useTable, Button, ChevronUpIcon, ColumnType } from '@pancakeswap-libs/uikit'
+import useI18n from 'hooks/useI18n'
 
 import Row, { RowProps } from './Row'
 
 export interface ITableProps {
   data: RowProps[]
   columns: ColumnType<RowProps>[]
-  userDataReady: boolean
   sortColumn?: string
 }
 
 const Container = styled.div`
+  filter: ${({ theme }) => theme.card.dropShadow};
   width: 100%;
   background: ${({ theme }) => theme.card.background};
   border-radius: 16px;
   margin: 16px 0px;
-  border: 1px solid ${({ theme }) => theme.colors.cardBorder};
 `
 
 const TableWrapper = styled.div`
   overflow: visible;
-  scroll-margin-top: 64px;
 
   &::-webkit-scrollbar {
     display: none;
@@ -49,6 +47,7 @@ const TableBody = styled.tbody`
 
 const TableContainer = styled.div`
   position: relative;
+}
 `
 
 const ScrollButtonContainer = styled.div`
@@ -60,8 +59,8 @@ const ScrollButtonContainer = styled.div`
 
 const FarmTable: React.FC<ITableProps> = (props) => {
   const tableWrapperEl = useRef<HTMLDivElement>(null)
-  const { t } = useTranslation()
-  const { data, columns, userDataReady } = props
+  const TranslateString = useI18n()
+  const { data, columns } = props
 
   const { rows } = useTable(columns, data, { sortable: true, sortColumn: 'farm' })
 
@@ -72,20 +71,20 @@ const FarmTable: React.FC<ITableProps> = (props) => {
   }
 
   return (
-    <Container id="farms-table">
-      <TableContainer id="table-container">
+    <Container>
+      <TableContainer>
         <TableWrapper ref={tableWrapperEl}>
           <StyledTable>
             <TableBody>
               {rows.map((row) => {
-                return <Row {...row.original} userDataReady={userDataReady} key={`table-row-${row.id}`} />
+                return <Row {...row.original} key={`table-row-${row.id}`} />
               })}
             </TableBody>
           </StyledTable>
         </TableWrapper>
         <ScrollButtonContainer>
           <Button variant="text" onClick={scrollToTop}>
-            {t('To Top')}
+            {TranslateString(999, 'To Top')}
             <ChevronUpIcon color="primary" />
           </Button>
         </ScrollButtonContainer>

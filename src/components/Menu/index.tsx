@@ -1,55 +1,40 @@
-import { useMemo } from 'react'
-import { useRouter } from 'next/router'
-import { NextLinkFromReactRouter } from 'components/NextLink'
-import { Menu as UikitMenu } from '@pancakeswap/uikit'
-import { languageList } from 'config/localization/languages'
-import { useTranslation } from 'contexts/Localization'
-import PhishingWarningBanner from 'components/PhishingWarningBanner'
+import React, { useContext } from 'react'
+import { Menu as UikitMenu } from '@pancakeswap-libs/uikit'
+import { useWeb3React } from '@web3-react/core'
+import { allLanguages } from 'config/localisation/languageCodes'
+import { LanguageContext } from 'contexts/Localisation/languageContext'
 import useTheme from 'hooks/useTheme'
-import { usePriceCakeBusd } from 'state/farms/hooks'
-import { usePhishingBannerManager } from 'state/user/hooks'
-import UserMenu from './UserMenu'
-import { useMenuItems } from './hooks/useMenuItems'
-import GlobalSettings from './GlobalSettings'
-import { getActiveMenuItem, getActiveSubMenuItem } from './utils'
-import { footerLinks } from './config/footerConfig'
+import useAuth from 'hooks/useAuth'
+import { usePriceCakeBusd, useProfile } from 'state/hooks'
+import config from './config'
 
 const Menu = (props) => {
-  const { isDark, setTheme } = useTheme()
+  const { account } = useWeb3React()
+  const { login, logout } = useAuth()
+  const { selectedLanguage, setSelectedLanguage } = useContext(LanguageContext)
+  const { isDark, toggleTheme } = useTheme()
   const cakePriceUsd = usePriceCakeBusd()
-  const { currentLanguage, setLanguage, t } = useTranslation()
-  const { pathname } = useRouter()
-  const [showPhishingWarningBanner] = usePhishingBannerManager()
-
-  const menuItems = useMenuItems()
-
-  const activeMenuItem = getActiveMenuItem({ menuConfig: menuItems, pathname })
-  const activeSubMenuItem = getActiveSubMenuItem({ menuItem: activeMenuItem, pathname })
-
-  const toggleTheme = useMemo(() => {
-    return () => setTheme(isDark ? 'light' : 'dark')
-  }, [setTheme, isDark])
+  const { profile } = useProfile()
 
   return (
     <UikitMenu
-      linkComponent={(linkProps) => {
-        return <NextLinkFromReactRouter to={linkProps.href} {...linkProps} prefetch={false} />
-      }}
-      userMenu={<UserMenu />}
-      globalMenu={<GlobalSettings />}
-      banner={showPhishingWarningBanner && typeof window !== 'undefined' && <PhishingWarningBanner />}
+      account={account}
+      login={login}
+      logout={logout}
       isDark={isDark}
       toggleTheme={toggleTheme}
-      currentLang={currentLanguage.code}
-      langs={languageList}
-      setLang={setLanguage}
+      currentLang={selectedLanguage && selectedLanguage.code}
+      langs={allLanguages}
+      setLang={setSelectedLanguage}
       cakePriceUsd={cakePriceUsd.toNumber()}
-      links={menuItems}
-      subLinks={activeMenuItem?.hideSubNav || activeSubMenuItem?.hideSubNav ? [] : activeMenuItem?.items}
-      footerLinks={footerLinks(t)}
-      activeItem={activeMenuItem?.href}
-      activeSubItem={activeSubMenuItem?.href}
-      buyCakeLabel={t('Buy CAKE')}
+      links={config}
+      profile={{
+        username: profile?.username,
+        image: profile?.nft ? `/images/nfts/${profile.nft?.images.sm}` : undefined,
+        profileLink: '/profile',
+        noProfileLink: '/profile',
+        showPip: !profile?.username,
+      }}
       {...props}
     />
   )

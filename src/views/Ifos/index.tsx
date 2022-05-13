@@ -1,32 +1,28 @@
-import { SubMenuItems } from '@pancakeswap/uikit'
-import { useTranslation } from 'contexts/Localization'
-import { PageMeta } from 'components/Layout/Page'
-import { useRouter } from 'next/router'
+import React from 'react'
+import { Route, useRouteMatch } from 'react-router-dom'
+import Container from 'components/layout/Container'
+import IfoTabButtons from './components/IfoTabButtons'
 import Hero from './components/Hero'
+import CurrentIfo from './CurrentIfo'
+import PastIfo from './PastIfo'
 
-export const IfoPageLayout = ({ children }) => {
-  const { t } = useTranslation()
-  const router = useRouter()
-  const isExact = router.route === '/ifo'
+const Ifos = () => {
+  const { path } = useRouteMatch()
 
   return (
     <>
-      <PageMeta />
-      <SubMenuItems
-        items={[
-          {
-            label: t('Latest'),
-            href: '/ifo',
-          },
-          {
-            label: t('Finished'),
-            href: '/ifo/history',
-          },
-        ]}
-        activeItem={isExact ? '/ifo' : '/ifo/history'}
-      />
       <Hero />
-      {children}
+      <Container>
+        <IfoTabButtons />
+        <Route exact path={`${path}`}>
+          <CurrentIfo />
+        </Route>
+        <Route path={`${path}/history`}>
+          <PastIfo />
+        </Route>
+      </Container>
     </>
   )
 }
+
+export default Ifos
